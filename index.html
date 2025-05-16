@@ -1,109 +1,157 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KV</title>
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-        }
-        .container {
-            width: 100%;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .countries {
-            fill: #d8d8d8;
-            stroke: #fff;
-            stroke-width: 0.5px;
-        }
-        #map{
-            width: 100%;
-            height: 100%;
-            position: relative;
-            margin: 0;
-        }
-        .countries:hover {
-            fill: #a1a1a1;
-        }
-        .tooltip {
-            position: absolute;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 5px;
-            border-radius: 4px;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-            z-index: 1000;
-        }
-    </style>
-    <!-- D3.js and TopoJSON libraries -->
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="https://unpkg.com/topojson@3"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>KV Zoom Map</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    .container {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .countries {
+      fill: #d8d8d8;
+      stroke: #fff;
+      stroke-width: 0.5px;
+    }
+
+    .countries:hover {
+      fill: #a1a1a1;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 5px;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 1000;
+    }
+  </style>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/topojson@3"></script>
 </head>
 <body>
-    <div class="container">
-        <div id="map"></div>
-    </div>
+  <div class="container">
+    <div id="map"></div>
+  </div>
 
-    <script>
-    // Set dimensions
-    const width = 500;
-    const height = 400;
-    
+  <script>
+    const width = 900;
+    const height = 800;
+
     const tooltip = d3.select("body")
-        .append("div")
-        .attr("class", "tooltip");
-
+      .append("div")
+      .attr("class", "tooltip");
 
     const svg = d3.select("#map")
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height);
-        
+      .append("svg")
+      .attr("width", width)
+      .attr("height", height);
+
+    // Create zoom group
+    const g = svg.append("g");
+
+    // Projection and path
     const projection = d3.geoMercator()
-        .center([10, 55]) // Centered on Europe
-        .scale(300)
-        .translate([width / 2.5, height / 2]);
-        
-    const path = d3.geoPath()
-        .projection(projection);
-        
-    d3.json("europe.json").then(function(topology) {
-        const geojson = topojson.feature(topology, topology.objects.europe); 
-        
-        // Draw the countries
-        svg.selectAll("path") 
-            .data(geojson.features)
-            .enter()
-            .append("path")
-            .attr("class", "countries")
-            .attr("d", path)
-            .on("mouseover", function(event, d) {
-                    const tooltipContent = `
-                    <strong>${d.properties.NAME}</strong><br>
-                    Capital: ${d.properties.CAPITAL || 'N/A'}<br>
-                    Population: ${d.properties.POP_EST?.toLocaleString() || 'N/A'}<br>
-                    Area: ${d.properties.AREA_KM2?.toLocaleString() || 'N/A'} km²
-                `;
-                tooltip.style("opacity", 1)
-                    .html(tooltipContent)
-                    .style("left", (event.pageX + 10) + "px")
-                    .style("top", (event.pageY - 30) + "px");
-            })
-            .on("mouseout", function() {
-                tooltip.style("opacity", 0);
-            })
-            .on("mousemove", function(event) {
-                tooltip.style("left", (event.pageX + 10) + "px")
-                    .style("top", (event.pageY - 30) + "px");
+      .scale(100)
+      .translate([width / 2, height / 2]);
+
+    const path = d3.geoPath().projection(projection);
+
+    // Zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([1, 10])
+      .on("zoom", (event) => {
+        g.attr("transform", event.transform);
+      });
+
+    svg.call(zoom);
+
+    // Reset zoom on background click
+    svg.insert("rect", ":first-child")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "transparent")
+      .on("click", () => {
+        svg.transition()
+          .duration(750)
+          .call(zoom.transform, d3.zoomIdentity);
+      });
+
+    // Load map
+    d3.json("worldmap.json").then((topology) => {
+      const geojson = topojson.feature(topology, topology.objects.countries);
+
+      g.selectAll("path")
+        .data(geojson.features)
+        .enter()
+        .append("path")
+        .attr("class", "countries")
+        .attr("d", path)
+        .on("mouseover", (event, d) => {
+          const tooltipContent = `
+            <strong>${d.properties.name}</strong><br>
+            Capital: ${d.properties.CAPITAL || 'N/A'}<br>
+            Population: ${d.properties.POP_EST?.toLocaleString() || 'N/A'}<br>
+            Area: ${d.properties.AREA_KM2?.toLocaleString() || 'N/A'} km²
+          `;
+          tooltip.style("opacity", 1)
+            .html(tooltipContent)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 30) + "px");
+        })
+        .on("mouseout", () => {
+          tooltip.style("opacity", 0);
+        })
+        .on("mousemove", (event) => {
+          tooltip.style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 30) + "px");
+        })
+        .on("click", function(event, d) {
+            event.stopPropagation();
+
+            const centroid = d3.geoCentroid(d);
+            const [x, y] = projection(centroid);
+
+            const [[x0, y0], [x1, y1]] = path.bounds(d);
+            const dx = x1 - x0;
+            const dy = y1 - y0;
+
+            const maxDim = Math.max(dx, dy);
+            const scale = Math.max(4, Math.min(15, 450 / maxDim));
+
+            const translate = [width / 2 - scale * x, height / 2 - scale * y];
+
+            svg.transition()
+                .duration(750)
+                .call(
+                zoom.transform,
+                d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
+                );
+
+            tooltip.style("opacity", 0);
             });
     });
-</script>
+
+  </script>
 </body>
 </html>
