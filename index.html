@@ -15,7 +15,22 @@
       height: 100vh;
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: start;
+      margin: 5vh;
+    }
+
+    .map-container {
+      width: 45%;
+      height: 100%;
+    }
+
+    .data-container {
+      width: 30%;
+      height: 100%;
+      padding: 20px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
     }
 
     #map {
@@ -45,18 +60,69 @@
       transition: opacity 0.3s;
       z-index: 1000;
     }
+
+    .year-selector {
+      margin-bottom: 20px;
+    }
+
+    .year-selector select {
+      padding: 8px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f2f2f2;
+      font-weight: bold;
+    }
+    
+    .no-data {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
   </style>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://unpkg.com/topojson@3"></script>
 </head>
 <body>
   <div class="container">
-    <div id="map"></div>
+    <div class="map-container">
+      <div id="map"></div>
+    </div>
+    <div class="data-container">
+      <h2>Unemployment Data</h2>
+      <div class="year-selector">
+        <label for="year-select">Select Year:</label>
+        <select id="year-select"></select>
+      </div>
+      <div id="data-table-container">
+        <p class="no-data">Select a country to view unemployment data</p>
+      </div>
+    </div>
   </div>
 
   <script>
-    const width = 900;
-    const height = 800;
+        const width = 600;
+    const height = 500;
+
+    // Add variables to store unemployment data and selections
+    let selectedCountryName = null;
+    let selectedYear = "2024"; // Default year
+    let unemploymentData = [];
 
     const tooltip = d3.select("body")
       .append("div")
@@ -69,15 +135,6 @@
 
     // Create zoom group
     const g = svg.append("g");
-
-    // Projection and path
-    const projection = d3.geoMercator()
-      .scale(100)
-      .translate([width / 2, height / 2]);
-
-    const path = d3.geoPath().projection(projection);
-
-    // Zoom behavior
     const zoom = d3.zoom()
       .scaleExtent([1, 10])
       .on("zoom", (event) => {
@@ -92,17 +149,63 @@
       .attr("height", height)
       .attr("fill", "transparent")
       .on("click", () => {
-        svg.transition()
-          .duration(750)
-          .call(zoom.transform, d3.zoomIdentity);
-      });
+        if (selectedCountry) {
+          d3.select(selectedCountry).style("fill", null);
+          selectedCountry = null;
+          selectedCountryName = null;
+          updateDataTable();
+      }
+      svg.transition()
+      .duration(750)
+      .call(zoom.transform, d3.zoomIdentity);
+    });
 
-    // Load map
-    d3.json("worldmap.json").then((topology) => {
+    let selectedCountry = null;
+    // Projection and path
+    const projection = d3.geoMercator()
+      .scale(100)
+      .translate([width / 2, height / 2]);
+
+    const path = d3.geoPath().projection(projection);
+
+    // Populate the year dropdown
+    const yearSelect = document.getElementById("year-select");
+    for (let year = 2014; year <= 2024; year++) {
+      const option = document.createElement("option");
+      option.value = year.toString();
+      option.textContent = year;
+      if (year === 2024) {
+        option.selected = true;
+      }
+      yearSelect.appendChild(option);
+    }
+
+    // Add event listener for year selection
+    yearSelect.addEventListener("change", function() {
+      selectedYear = this.value;
+      updateDataTable();
+    });
+
+    // Load unemployment data and then the map
+    d3.csv("global_unemployment_data.csv").then((data) => {
+      unemploymentData = data;
+      console.log("Unemployment data loaded:", unemploymentData.slice(0, 6)); // Log sample for debugging
+      
+      // Continue with map loading
+      return d3.json("worldmap.json");
+    }).then((topology) => {
       const geojson = topojson.feature(topology, topology.objects.countries);
-
+      const filteredFeatures = geojson.features.filter(d => 
+        d.properties.name !== "Antarctica"
+      );
+      
+      // Create a new GeoJSON object with the filtered features
+      const filteredGeojson = {
+        type: "FeatureCollection",
+        features: filteredFeatures
+      };
       g.selectAll("path")
-        .data(geojson.features)
+        .data(filteredGeojson.features)
         .enter()
         .append("path")
         .attr("class", "countries")
@@ -128,7 +231,34 @@
         })
         .on("click", function(event, d) {
             event.stopPropagation();
-
+            if (this === selectedCountry) {
+                // If same country clicked again, treat it like background click (zoom out)
+                d3.select(this).style("fill", null);
+                selectedCountry = null;
+                selectedCountryName = null;
+                
+                // Update data table after deselection
+                updateDataTable();
+                
+                // Zoom out
+                svg.transition()
+                    .duration(750)
+                    .call(zoom.transform, d3.zoomIdentity);
+                    
+                return;
+            }
+            if (selectedCountry) {
+                d3.select(selectedCountry).style("fill", null);
+            }
+            
+            // Store current selection and set color to red
+            selectedCountry = this;
+            selectedCountryName = normalizeCountryName(d.properties.name);
+            d3.select(this).style("fill", "rgba(255, 0, 0, 0.7)");
+            
+            // Update the data table for selected country
+            updateDataTable();
+            
             const centroid = d3.geoCentroid(d);
             const [x, y] = projection(centroid);
 
@@ -149,8 +279,81 @@
                 );
 
             tooltip.style("opacity", 0);
-            });
-    });
+        });
+    }).catch(error => console.error("Error loading data:", error));
+
+      function normalizeCountryName(mapName) {
+          const nameMapping = {
+            "United States of America": "United States",
+            "USA": "United States",
+            "UK": "United Kingdom",
+            "Democratic Republic of the Congo": "Congo, Democratic Republic of the",
+            "Russia": "Russian Federation",
+            "Brunei": "Brunei Darussalam",
+            "Taiwan": "Taiwan, China",
+          };
+        
+        return nameMapping[mapName] || mapName;
+      }
+      function updateDataTable() {
+      const tableContainer = document.getElementById("data-table-container");
+      
+      if (!selectedCountryName) {
+        tableContainer.innerHTML = `<p class="no-data">Select a country to view unemployment data</p>`;
+        return;
+      }
+      
+      // Filter the data for the selected country
+      const countryData = unemploymentData.filter(d => 
+        d.country_name?.toLowerCase() === selectedCountryName.toLowerCase(),
+      );
+      console.log("Filtered data for selected country:", countryData); // Log filtered data for debugging
+      if (countryData.length === 0) {
+        tableContainer.innerHTML = `<p class="no-data">No unemployment data available for ${selectedCountryName}</p>`;
+        return;
+      }
+
+      // Create the table
+      let tableHTML = `
+        <h3>Unemployment Data for ${selectedCountryName} (${selectedYear})</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Sex</th>
+              <th>Age Group</th>
+              <th>Category</th>
+              <th>Unemployment Rate (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      
+      // Find index of selected year column (add 3 to account for the first three columns)
+      const yearIndex = 3 + (parseInt(selectedYear) - 2014);
+      // Add rows for each demographic group
+      for (const row of countryData) {
+        const sex = row.sex;
+        const ageGroup = row.age_group;
+        const category = row.age_categories;
+        const rate = parseFloat(row[selectedYear]).toFixed(2);
+        
+        tableHTML += `
+          <tr>
+            <td>${sex}</td>
+            <td>${ageGroup}</td>
+            <td>${category}</td>
+            <td>${rate}%</td>
+          </tr>
+        `;
+      }
+      
+      tableHTML += `
+          </tbody>
+        </table>
+      `;
+      
+      tableContainer.innerHTML = tableHTML;
+    }
 
   </script>
 </body>
