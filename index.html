@@ -186,10 +186,17 @@
       updateDataTable();
     });
 
-    // Load unemployment data and then the map
-    d3.csv("global_unemployment_data.csv").then((data) => {
-      unemploymentData = data;
-      console.log("Unemployment data loaded:", unemploymentData.slice(0, 6)); // Log sample for debugging
+    let worldData = [];
+
+    Promise.all([
+      d3.csv("global_unemployment_data.csv"),
+      d3.csv("world_data_2023.csv")  // Add this line to load world data
+    ]).then(([unemploymentDataLoaded, worldDataLoaded]) => {
+      unemploymentData = unemploymentDataLoaded;
+      worldData = worldDataLoaded;
+      
+      console.log("Unemployment data loaded:", unemploymentData.slice(0, 6)); 
+      console.log("World data loaded:", worldData.slice(0, 3));
       
       // Continue with map loading
       return d3.json("worldmap.json");
@@ -211,12 +218,15 @@
         .attr("class", "countries")
         .attr("d", path)
         .on("mouseover", (event, d) => {
+          const countryData = getCountryDetails(d.properties.name);
+          
           const tooltipContent = `
             <strong>${d.properties.name}</strong><br>
-            Capital: ${d.properties.CAPITAL || 'N/A'}<br>
-            Population: ${d.properties.POP_EST?.toLocaleString() || 'N/A'}<br>
-            Area: ${d.properties.AREA_KM2?.toLocaleString() || 'N/A'} km²
+            Capital: ${countryData.capital || 'N/A'}<br>
+            Population: ${countryData.population?.toLocaleString() || 'N/A'}<br>
+            Area: ${countryData.area?.toLocaleString() || 'N/A'} km²
           `;
+          
           tooltip.style("opacity", 1)
             .html(tooltipContent)
             .style("left", (event.pageX + 10) + "px")
@@ -224,10 +234,6 @@
         })
         .on("mouseout", () => {
           tooltip.style("opacity", 0);
-        })
-        .on("mousemove", (event) => {
-          tooltip.style("left", (event.pageX + 10) + "px")
-            .style("top", (event.pageY - 30) + "px");
         })
         .on("click", function(event, d) {
             event.stopPropagation();
@@ -282,10 +288,23 @@
         });
     }).catch(error => console.error("Error loading data:", error));
 
+    // Add this function to get country details from world data
+    function getCountryDetails(countryName) {
+      // Find the country in the world data
+      const country = worldData.find(d => 
+        d.Country?.toLowerCase() === countryName.toLowerCase()
+      );
+      
+      if (!country) return { capital: 'N/A', population: 'N/A', area: 'N/A' };
+      
+      return {
+        capital: country.Capital,
+        population: country.Population,
+        area: country.LandArea
+      };
+    }
       function normalizeCountryName(mapName) {
           const nameMapping = {
-            "United States of America": "United States",
-            "USA": "United States",
             "UK": "United Kingdom",
             "Democratic Republic of the Congo": "Congo, Democratic Republic of the",
             "Russia": "Russian Federation",
